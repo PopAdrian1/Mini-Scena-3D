@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>🚀 Rocket Launch — Three.js</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; overflow: hidden; font-family: 'Share Tech Mono', monospace; }
+    #canvas-container { width: 100vw; height: 100vh; }
+    #hud { position: fixed; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; z-index: 10; }
+
+    #title {
+      position: absolute; top: 32px; left: 50%; transform: translateX(-50%);
+      font-family: 'Orbitron', sans-serif; font-weight: 900; font-size: 1.3rem;
+      letter-spacing: 0.3em; color: #fff;
+      text-shadow: 0 0 20px #4af, 0 0 40px #4af;
+      text-transform: uppercase; white-space: nowrap;
+    }
+    #status { position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); text-align: center; }
+    #status .key-hint {
+      font-family: 'Orbitron', sans-serif; font-size: 0.85rem;
+      letter-spacing: 0.25em; color: #aef; opacity: 0.8;
+    }
+
+    @keyframes blink { 0%, 100% { opacity: 0.8; } 50% { opacity: 0.2; } }
+  </style>
+</head>
+<body>
+<div id="canvas-container"></div>
+<div id="hud">
+  <div id="status">
+    <div class="key-hint" id="key-hint">[ W ] Lansează Racheta</div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+
+
+//Scena, camera, renderer
+const container = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+
+
+// Camera follows rocket from behind/below
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 5000);
+camera.position.set(0, 4, 18);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(devicePixelRatio);
+container.appendChild(renderer.domElement);
+
+// grupare intr-o lume pentru a roti totul odata cu mouse-ul, pastrand camera fixa fata de scena
+const worldGroup = new THREE.Group();
+scene.add(worldGroup);
+
+//Lumini
+scene.add(new THREE.AmbientLight(0x111133, 1.5));
+const sunLight = new THREE.DirectionalLight(0xffffff, 2);
+sunLight.position.set(50, 100, 30);
+scene.add(sunLight);
+const engineGlow = new THREE.PointLight(0xff6600, 0, 12);
+worldGroup.add(engineGlow);
+
+// Stele (puncte luminoase în spațiu)
+function createStarField(count, spread) {
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    pos[i*3]   = (Math.random() - 0.5) * spread;
+    pos[i*3+1] = Math.random() * spread * 2 - 50; // mostly above ground
+    pos[i*3+2] = (Math.random() - 0.5) * spread;
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  return new THREE.Points(geo, new THREE.PointsMaterial({
+    color: 0xffffff, size: 0.12, sizeAttenuation: true, transparent: true, opacity: 0.9
+  }));
+}
+const stars = createStarField(5000, 800);
+worldGroup.add(stars);
+
+// Platforma de lansare
+const padGeo = new THREE.BoxGeometry(10, 0.4, 10);
+const padMat = new THREE.MeshPhongMaterial({ color: 0x22aa44, shininess: 40 });
+const launchPad = new THREE.Mesh(padGeo, padMat);
+launchPad.position.set(0, -8, 0);
+worldGroup.add(launchPad);
+
+
+// Brat suport pentru racheta
+const towerGeo = new THREE.BoxGeometry(0.3, 6, 0.3);
+const towerMat = new THREE.MeshPhongMaterial({ color: 0x888899 });
+const tower = new THREE.Mesh(towerGeo, towerMat);
+tower.position.set(1.5, -5, 0);
+worldGroup.add(tower);
+
+// Racheta combinata din mai multe forme
+const rocketGroup = new THREE.Group();
+worldGroup.add(rocketGroup);
+
+// Corp racheta
+const body = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.55, 0.65, 4.5, 24),
+  new THREE.MeshPhongMaterial({ color: 0xdde8f0, shininess: 120, specular: 0x88aacc })
+);
+rocketGroup.add(body);
+
+// Nasul rachetei
+const nose = new THREE.Mesh(
+  new THREE.ConeGeometry(0.55, 2.2, 24),
+  new THREE.MeshPhongMaterial({ color: 0xff3333, shininess: 150 })
+);
+nose.position.y = 3.35;
+rocketGroup.add(nose);
+
+// Fereastra rachetei
+const win = new THREE.Mesh(
+  new THREE.SphereGeometry(0.28, 16, 16),
+  new THREE.MeshPhongMaterial({ color: 0x88ddff, emissive: 0x224466, shininess: 200 })
+);
+win.position.set(0, 1.2, 0.52);
+rocketGroup.add(win);
+
+// coada - triunghiuri lipite pe corp
+const finMat = new THREE.MeshPhongMaterial({ color: 0xff3333, side: THREE.DoubleSide });
+
+const finsData = [
+  { x:  0.65, z:  0,    ry: 0 },           // dreapta
+  { x: -0.65, z:  0,    ry: Math.PI },      // stânga
+  { x:  0,    z:  -0.65, ry: Math.PI / 2  },  // față
+  { x:  0,    z: 0.65, ry: -Math.PI / 2 }, // spate
+];
+
+finsData.forEach(({ x, z, ry }) => {
+  const geo = new THREE.BufferGeometry();
+
+  // triunghi: vârful sus, baza jos-exterior
+  const v = new Float32Array([
+     0,    0,    0,   // vârf (lipit de corp sus)
+     0,   -1.6,  0,   // jos interior
+     0.9, -1.6,  0,   // jos exterior
+  ]);
+
+  geo.setAttribute('position', new THREE.BufferAttribute(v, 3));
+  geo.computeVertexNormals();
+
+  const fin = new THREE.Mesh(geo, finMat);
+  fin.position.set(x, -1.8, z);  // jos pe corp
+  fin.rotation.y = ry;
+  rocketGroup.add(fin);
+});
+
+// Motor
+const nozzle = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.5, 0.7, 0.6, 20),
+  new THREE.MeshPhongMaterial({ color: 0x444455, shininess: 200 })
+);
+nozzle.position.y = -2.55;
+rocketGroup.add(nozzle);
+
+
+// Pozitionam racheta pe platforma de lanasare
+const ROCKET_START_Y = -4.2;
+rocketGroup.position.set(0, ROCKET_START_Y, 0);
+
+// Planete
+
+const planetData = [
+  { y: 80,  x: 0,   r: 12, color: 0x3355cc, name: '🔵 Planeta Albastra',  emissive: 0x112244 },
+  { y: 160, x: -6,  r: 10, color: 0x44bb66, name: '🟢 Planeta Verde',     emissive: 0x113322 },
+];
+
+const planets = planetData.map(p => {
+  const mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(p.r, 32, 32),
+    new THREE.MeshPhongMaterial({ color: p.color, emissive: p.emissive, shininess: 60 })
+  );
+  mesh.position.set(p.x, p.y, -30);
+  mesh.userData = { name: p.name, visited: false };
+  worldGroup.add(mesh);
+  return mesh;
+});
+
+
+// Flacara motorului - conuri care pulsează și tremură pentru efect de flacără
+const flameMeshes = [];
+const flameColors = [0xff2200, 0xff6600, 0xff9900, 0xffcc00];
+
+for (let i = 0; i < 8; i++) {
+  const mesh = new THREE.Mesh(
+    new THREE.ConeGeometry(0.7 - i * 0.02, 0.8, 8),
+    new THREE.MeshBasicMaterial({
+      color: flameColors[i % flameColors.length],
+      transparent: true,
+      opacity: 0.8,
+      blending: THREE.AdditiveBlending
+    })
+  );
+  mesh.rotation.x = Math.PI; // vârful conului în jos
+  worldGroup.add(mesh);
+  flameMeshes.push(mesh);
+}
+
+function updateFlame(active, rocketY) {
+  const t = performance.now() * 0.01;
+  flameMeshes.forEach((mesh, i) => {
+    mesh.visible = active;
+    mesh.position.set(
+      Math.sin(t + i) * 0.05,         // tremur mic pe X
+      rocketY - 3.0 - i * 0.35,       // fiecare con mai jos
+      Math.cos(t + i) * 0.05          // tremur mic pe Z
+    );
+    mesh.scale.setScalar(0.8 + Math.sin(t * 2 + i) * 0.2); // pulsează
+  });
+}
+
+// Status și control
+let launching = false;
+let speed = 0;
+let rocketY = ROCKET_START_Y;
+
+
+const keyHint      = document.getElementById('key-hint');
+
+window.addEventListener('keydown', e => { if (e.key==='w'||e.key==='W') speed = 0.5, launching = true });
+window.addEventListener('keyup',   e => { if (e.key==='w'||e.key==='W') speed = 0, launching = false; });
+
+// Rotire scenă
+let isDragging = false;
+let prevMouseX = 0;
+let prevMouseY = 0;
+
+renderer.domElement.addEventListener('mousedown', e => {
+  isDragging = true;
+  prevMouseX = e.clientX;
+  prevMouseY = e.clientY;
+});
+renderer.domElement.addEventListener('mouseup',   () => isDragging = false);
+renderer.domElement.addEventListener('mouseleave',() => isDragging = false);
+renderer.domElement.addEventListener('mousemove', e => {
+  if (!isDragging) return;
+  const dx = e.clientX - prevMouseX;
+  const dy = e.clientY - prevMouseY;
+  worldGroup.rotation.y += dx * 0.008;  // stânga-dreapta
+  worldGroup.rotation.x += dy * 0.008;  // sus-jos
+  prevMouseX = e.clientX;
+  prevMouseY = e.clientY;
+});
+
+
+// Animatie
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+  const dt = clock.getDelta ? 1 : 1; // normalized
+
+  // Control viteză și lansare
+    if (launching) rocketY += speed;
+
+  // Limitează racheta să nu coboare sub platformă
+  if (rocketY < ROCKET_START_Y) rocketY = ROCKET_START_Y;
+
+    rocketGroup.position.y = rocketY;
+
+
+  rocketGroup.rotation.z = Math.sin(t * 0.4) * speed * 0.06;
+
+  // Camera urmărește racheta
+    camera.position.y = rocketY;
+    camera.position.z = 18;
+    camera.lookAt(0, rocketY, 0);
+
+  // Rotire planete și inel
+  planets.forEach(p => { p.rotation.y += 0.003; });
+
+  // Flacăra motorului
+  updateFlame(speed > 0.01, rocketY);
+
+
+  renderer.render(scene, camera);
+}
+
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>
