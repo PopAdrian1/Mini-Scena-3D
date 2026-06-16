@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Examen - Scena 3D Corectata</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; overflow: hidden; }
+    #canvas-container { width: 100vw; height: 100vh; }
+  </style>
+</head>
+<body>
+<div id="canvas-container"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+
+// INIȚIALIZARE SCENĂ, CAMERĂ ȘI RENDERER
+const container = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+// Potrivim camera ușor mai jos pentru a prinde unghiul exact din imaginea 2
+camera.position.set(0, 11, 38);
+camera.lookAt(0, 1, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+container.appendChild(renderer.domElement);
+
+// Grup global pentru rotirea scenei cu mouse-ul
+const worldGroup = new THREE.Group();
+scene.add(worldGroup);
+
+// Adăugăm o grilă la baza scenei (ajustată pe Y ca să se intersecteze exact ca în poza 2)
+const gridHelper = new THREE.GridHelper(50, 40, 0x444444, 0x222222);
+gridHelper.position.y = -2.2; 
+worldGroup.add(gridHelper);
+
+
+
+//  ETAPA 1: GENERAREA SUPRAFEȚEI PARAMETRICE VERZI
+
+
+// Funcția matematică modificată pentru a avea CREASTĂ în mijloc și margini coborâte scurt
+function getSurfaceHeight(x, z) {
+    
+    const crestInCenter = -Math.cos(x * 0.28) * 3.2 + 0.8; 
+    
+    // Variație ușoară pe axa Z pentru un relief 3D fluid
+    const waveZ = Math.cos(z * 0.3) * 0.4;
+    
+    // Factor parabolic pentru a scurta și coborî brusc marginile din stânga/dreapta sub grilă
+    const edgeDrop = -Math.pow(x * 0.14, 2); 
+
+    return crestInCenter + waveZ + edgeDrop;
+}
+
+// Generăm geometria manual pe baza funcției de înălțime
+const sizeX = 32, sizeZ = 20;
+const segmentsX = 80, segmentsZ = 40;
+const surfaceGeometry = new THREE.ParametricGeometry((u, v, target) => {
+    const x = (u - 0.5) * sizeX;
+    const z = (v - 0.5) * sizeZ;
+    const y = getSurfaceHeight(x, z);
+    target.set(x, y, z);
+}, segmentsX, segmentsZ);
+
+// Material verde aprins, cu un luciu pronunțat (roughness mic) pentru reflexia albă din centru
+const surfaceMaterial = new THREE.MeshStandardMaterial({
+    color: 0x00ff11,
+    roughness: 0.15,
+    metalness: 0.0,
+    side: THREE.DoubleSide
+});
+const surfaceMesh = new THREE.Mesh(surfaceGeometry, surfaceMaterial);
+worldGroup.add(surfaceMesh);
+
+// Sursă de lumină ambientală (pentru vizibilitate în Etapa 1)
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.15);
+scene.add(ambientLight);
+
+
+
+
+// ETAPA 2: TRASAREA TRAIECTORIILOR (ROȘIE ȘI ALBASTRĂ)
+
+const pointsRed = [];
+const pointsBlue = [];
+const numPoints = 120;
+
+for (let i = 0; i <= numPoints; i++) {
+    const t = i / numPoints;
+    const x = (t - 0.5) * (sizeX - 1); 
+    const z = 1.5; // Poziționare pe Z pentru a fi centrate pe relief
+
+    // Traiectoria Roșie: Urmărește fidel relieful cu noua creastă centrală
+    const yRed = getSurfaceHeight(x, z) + 0.05; 
+    pointsRed.push(new THREE.Vector3(x, yRed, z));
+
+    // Traiectoria Albastră: O undă sinusoidală care se ridică și coboară peste relief, dar cu amplitudine mai mare pentru a crea un efect vizual interesant
+    const yBlue = 5.5 + Math.sin(t * Math.PI) * 4.5;
+    pointsBlue.push(new THREE.Vector3(x, yBlue, z));
+}
+
+// Creare linie Roșie
+const geometryRed = new THREE.BufferGeometry().setFromPoints(pointsRed);
+const materialRed = new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 3 });
+const lineRed = new THREE.Line(geometryRed, materialRed);
+worldGroup.add(lineRed);
+
+// Creare linie Albastră
+const geometryBlue = new THREE.BufferGeometry().setFromPoints(pointsBlue);
+const materialBlue = new THREE.LineBasicMaterial({ color: 0x0088ff, linewidth: 3 });
+const lineBlue = new THREE.Line(geometryBlue, materialBlue);
+worldGroup.add(lineBlue);
+
+
+
+
+
+// ETAPA 3: LUMINA DINAMICĂ ȘI CONTROLUL TASTATURII
+
+// Obiectul vizual (Cubul Galben)
+const lightCubeGeo = new THREE.BoxGeometry(0.45, 0.45, 0.45);
+const lightCubeMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+const lightCube = new THREE.Mesh(lightCubeGeo, lightCubeMat);
+worldGroup.add(lightCube);
+
+
+const pointLight = new THREE.PointLight(0xffffff, 4.5, 45);
+lightCube.add(pointLight);
+
+// Poziția inițială pe curbă 
+let progress = 0.53; 
+const curveBlue = new THREE.CatmullRomCurve3(pointsBlue);
+
+// Ascultător pentru tastele ArrowUp / ArrowDown
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowUp') {
+        progress += 0.015;
+        if (progress > 1) progress = 1; 
+    }
+    if (e.key === 'ArrowDown') {
+        progress -= 0.015;
+        if (progress < 0) progress = 0; 
+    }
+});
+
+
+
+
+// Rotire scenă)
+let isDragging = false;
+let prevMouseX = 0, prevMouseY = 0;
+
+renderer.domElement.addEventListener('mousedown', e => {
+  isDragging = true;
+  prevMouseX = e.clientX;
+  prevMouseY = e.clientY;
+});
+renderer.domElement.addEventListener('mouseup',   () => isDragging = false);
+renderer.domElement.addEventListener('mouseleave',() => isDragging = false);
+renderer.domElement.addEventListener('mousemove', e => {
+  if (!isDragging) return;
+  const dx = e.clientX - prevMouseX;
+  const dy = e.clientY - prevMouseY;
+  worldGroup.rotation.y += dx * 0.005;
+  worldGroup.rotation.x += dy * 0.005;
+  prevMouseX = e.clientX;
+  prevMouseY = e.clientY;
+});
+
+
+// --- CICLUL DE ANIMATIE ---
+function animate() {
+  requestAnimationFrame(animate);
+
+  // LOGICĂ ACTUALIZARE ETAPA 3
+  if (typeof curveBlue !== 'undefined') {
+      const lightPosition = curveBlue.getPointAt(progress);
+      lightCube.position.copy(lightPosition);
+  }
+
+  renderer.render(scene, camera);
+}
+
+animate();
+
+// Ajustare automată la redimensionarea ferestrei
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
